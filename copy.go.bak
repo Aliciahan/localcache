@@ -1,0 +1,185 @@
+package local
+
+import (
+	"bytes"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"github.com/gregjones/httpcache/diskcache"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+	"time"
+)
+
+import (
+	"bytes"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"github.com/gregjones/httpcache/diskcache"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+	"time"
+)
+
+
+import (
+	"bytes"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"github.com/gregjones/httpcache/diskcache"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+	"time"
+)
+
+func addUnique(listStr *[]string, newStr string) {
+	addOrNot := true
+
+	if len(*listStr) == 0 {
+		addOrNot = true
+	} else {
+		for _,v := range *listStr {
+			if v == newStr {
+				addOrNot = false
+			}
+		}
+	}
+	if addOrNot == true {
+		*listStr = append(*listStr,newStr)
+	}
+}
+
+func outputAirflowDiscover(detectName string, dataSlice []string) string {
+	result := `{"data": [`
+	for i:=0; i< len(dataSlice)-1; i++ {
+		result = result + `{"{#`+ detectName + `}": ` +`"`+ dataSlice[i] +`"` +    `},`
+	}
+	result = result + `{"{#`+ detectName + `}": ` +`"`+ dataSlice[len(dataSlice)-1] +`"` +`}`
+	return result + `]}`
+}
+
+func requestWithCachingSystem (url string,ttl int64, filePath string)  []byte {
+	/*
+		if the file exist, if not exist create one, otherwise, open it.
+		check key exists?
+			if present TTL check
+				check TTL is OK, if OK, read return key
+				or renew write return key
+		if key is not exists?
+			write key, write ttl
+			return value
+	 */
+
+	//if _, err := os.Stat(filePath); err == nil {
+	//	//file exist
+	//
+	//} else if os.IsNotExist(err){
+	//	//file doesn't exist
+	//} else {
+	//	// other case
+	//}
+	var result []byte
+	c := diskcache.New(filePath)
+	ts,isExist := c.Get("airflow-dags-timestamp")
+
+	if isExist == true {
+		ts_int := bytesToInt64(ts)
+		if time.Now().UnixNano()-ts_int <= ttl {
+			bodyData,_ := c.Get("airflow-dags")
+			//log.Println("exist timestamp within TTL")
+			return bodyData
+		}
+	}
+
+	resp, err := http.Get(url)
+	if err != nil {
+		log.Fatal("[airflow-checker] Request Error:" , err)
+	}
+	defer resp.Body.Close()
+	respBody, err :=ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatal("[airflow-checker] Request Reading Error:" , err)
+	}
+	c.Set("airflow-dags-timestamp", int64Tobytes(time.Now().UnixNano()))
+	c.Set("airflow-dags", respBody)
+	result = respBody
+	return result
+}
+
+func int64Tobytes(i int64) []byte {
+	b := make([]byte,8)
+	binary.LittleEndian.PutUint64(b, uint64(i))
+	return b
+}
+
+func bytesToInt64(b []byte ) int64 {
+	return int64(binary.LittleEndian.Uint64(b))
+}
+
+func getMappedAirflowDagsInfo() map[string] DagS {
+	bb := bytes.NewBuffer(requestWithCachingSystem("http://localhost:8080/admin/airflow/dag_stats",1000000000*10, "/tmp/airflow-dags"))
+	var result  map[string] DagS
+	json.NewDecoder(bb).Decode(&result)
+	return result
+}
+
+func getDagList() []string  {
+	result := getMappedAirflowDagsInfo()
+	var returnValue []string
+	for idx, _ := range result {
+		addUnique(&returnValue, idx)
+	}
+	return returnValue
+}
+
+type DagStatus struct {
+	Count	int		`json:"count"`
+	Color	string 	`json:"color"`
+	State	string	`json:"state"`
+	DagId	string	`json:"dag_id"`
+}
+
+type DagS [] DagStatus
+
+func checkDagStatus(dagname string, status string) int  {
+
+	result := getMappedAirflowDagsInfo()
+
+	for _, v := range result[dagname] {
+		if v.State == status {
+			return v.Count
+		}
+	}
+	return 999
+}
+
+func main() {
+
+
+	switch os.Args[1]{
+	case "listdags":
+		strList := getDagList()
+		fmt.Println(outputAirflowDiscover("DAG",strList))
+	case "checkdag":
+		fmt.Println(strconv.Itoa(checkDagStatus(os.Args[2], os.Args[3])))
+	case "test":
+		requestWithCachingSystem("http://localhost:8080/admin/airflow/dag_stats",1000000000*10,"/tmp/airflow-check")
+	default:
+		log.Fatal("[airflow-checker] Unknown arguments")
+	}
+
+
+
+}
+

@@ -1,0 +1,10 @@
+.idea/*
+source/k8s-job-batch
+source/main
+source/pkg/*
+source/src/cloud.google.com/*
+source/src/github.com/*
+source/src/golang.org/*
+source/src/gopkg.in/*
+source/src/k8s.io/*
+source/src/sigs.k8s.io/*
