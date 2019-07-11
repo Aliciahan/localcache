@@ -98,3 +98,33 @@ func (l LocalCache) GetData (key string, ttlInSecond int) ([]byte, bool){
 		return nil, false
 	}
 }
+
+func (l LocalCache) GetDataWithStatus (key string, ttlInSecond int) ([]byte, int){
+	/*
+	return
+		0: The data exists and within TTL
+		1: The data doesn't exist
+		2: The data exists but not in a valid TTL
+	 */
+	var ttl int64
+	ttl = 1000000000*int64(ttlInSecond)
+	c := diskcache.New(l.dirPath)
+	dataBody,existe := c.Get(key)
+	if existe == false {
+		//log.Println("Key does not existe ... ")
+		return nil, 1
+	}
+	var data dataWithTimeStamp
+
+	err := getInterface(dataBody,&data)
+	if err != nil {
+		log.Fatal("interface",err)
+	}
+
+	if time.Now().UnixNano()-data.TimeAdded <= ttl {
+		return data.Data, 0
+	}else {
+		//log.Println("Key expired ... ")
+		return nil, 2
+	}
+}
